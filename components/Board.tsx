@@ -91,8 +91,8 @@ export const Board: React.FC<BoardProps> = ({
           );
         })
       )}
-      {/* Board Base */}
-      <mesh position={[0, -0.25, 0]} receiveShadow>
+      {/* Board Base - Lowered to -0.26 to fix Z-fighting */}
+      <mesh position={[0, -0.26, 0]} receiveShadow>
         <boxGeometry args={[9, 0.5, 9]} />
         <meshStandardMaterial color="#111" />
       </mesh>

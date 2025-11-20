@@ -2,11 +2,12 @@ import React, { useState } from 'react';
 import { Canvas } from '@react-three/fiber';
 import { GameScene } from './components/GameScene';
 import { Overlay } from './components/Overlay';
-import { SkinType, CameraMode } from './types';
+import { SkinType, CameraMode, PieceColor } from './types';
 
 const App: React.FC = () => {
   const [skin, setSkin] = useState<SkinType>(SkinType.CLASSIC);
   const [cameraMode, setCameraMode] = useState<CameraMode>(CameraMode.ORBIT);
+  const [playerColor, setPlayerColor] = useState<PieceColor>(PieceColor.WHITE);
   const [lastCommentary, setLastCommentary] = useState<string>("");
   const [isAiThinking, setIsAiThinking] = useState<boolean>(false);
 
@@ -14,10 +15,11 @@ const App: React.FC = () => {
     <div className="relative w-full h-full">
       {/* 3D Canvas */}
       <div className="absolute inset-0 z-0">
-        <Canvas shadows camera={{ position: [0, 10, 5], fov: 50 }}>
+        <Canvas shadows camera={{ position: [0, 10, -8], fov: 50 }}>
           <GameScene 
             skin={skin} 
-            cameraMode={cameraMode} 
+            cameraMode={cameraMode}
+            playerColor={playerColor}
             setLastCommentary={setLastCommentary}
             isAiThinking={isAiThinking}
             setIsAiThinking={setIsAiThinking}
@@ -32,6 +34,8 @@ const App: React.FC = () => {
           setSkin={setSkin} 
           cameraMode={cameraMode} 
           setCameraMode={setCameraMode}
+          playerColor={playerColor}
+          setPlayerColor={setPlayerColor}
           commentary={lastCommentary}
           isThinking={isAiThinking}
         />

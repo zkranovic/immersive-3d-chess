@@ -2,7 +2,7 @@ import React, { useRef, useEffect, useState, useMemo } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import { OrbitControls, Environment, Stars } from '@react-three/drei';
 import * as THREE from 'three';
-import { Chess, Move } from 'chess.js';
+import { Chess } from 'chess.js';
 import { Board } from './Board';
 import { PieceGeometry } from './PieceGeometry';
 import { PieceType, PieceColor, SkinType, CameraMode, AIResponse } from '../types';
@@ -11,6 +11,7 @@ import { getBestMove } from '../services/geminiService';
 interface GameSceneProps {
   skin: SkinType;
   cameraMode: CameraMode;
+  playerColor: PieceColor;
   setLastCommentary: (c: string) => void;
   isAiThinking: boolean;
   setIsAiThinking: (b: boolean) => void;
@@ -18,7 +19,8 @@ interface GameSceneProps {
 
 export const GameScene: React.FC<GameSceneProps> = ({ 
   skin, 
-  cameraMode, 
+  cameraMode,
+  playerColor,
   setLastCommentary,
   isAiThinking,
   setIsAiThinking
@@ -27,16 +29,48 @@ export const GameScene: React.FC<GameSceneProps> = ({
   const [fen, setFen] = useState(chess.fen());
   const [selectedSquare, setSelectedSquare] = useState<string | null>(null);
   const [validMoves, setValidMoves] = useState<string[]>([]);
-  const [cursorPos, setCursorPos] = useState({ x: 4, y: 1 }); // Start at e2 (White pawn)
+  const [cursorPos, setCursorPos] = useState({ x: 4, y: 1 }); 
   const [lastMove, setLastMove] = useState<{ from: string, to: string } | null>(null);
+  
+  const { camera } = useThree();
+  const controlsRef = useRef<any>(null);
+
+  // -- Effects --
+
+  // 1. Handle Game Reset & Camera Position on Color Change
+  useEffect(() => {
+    chess.reset();
+    setFen(chess.fen());
+    setLastMove(null);
+    setValidMoves([]);
+    setSelectedSquare(null);
+    setLastCommentary(playerColor === PieceColor.WHITE ? "Game started. Your move." : "Game started. I shall move first.");
+    
+    // Reset Cursor
+    if (playerColor === PieceColor.WHITE) {
+       setCursorPos({ x: 4, y: 1 }); // e2
+    } else {
+       setCursorPos({ x: 4, y: 6 }); // e7
+    }
+
+    // Adjust Camera
+    const zPos = playerColor === PieceColor.WHITE ? -8 : 8;
+    // Using set to update position immediately
+    camera.position.set(0, 8, zPos);
+    if (controlsRef.current) {
+      controlsRef.current.target.set(0, 0, 0);
+      prevTarget.current.set(0,0,0);
+    }
+  }, [playerColor, chess, camera]); // Added chess/camera to deps for completeness
+
+  // 2. Trigger AI if turn doesn't match player color
+  useEffect(() => {
+    if (!chess.isGameOver() && chess.turn() !== playerColor && !isAiThinking) {
+        makeAiMove();
+    }
+  }, [fen, playerColor]); // FEN update signals turn change
 
   // Maps algebraic 'e4' to [x, z] coords for 3D space
-  const squareToCoords = (square: string): [number, number] => {
-    const file = square.charCodeAt(0) - 97; // 'a' -> 0
-    const rank = parseInt(square[1]) - 1;   // '1' -> 0
-    return [file - 3.5, rank - 3.5];
-  };
-
   const coordsToSquare = (x: number, y: number): string => {
     const file = String.fromCharCode(97 + x);
     const rank = String(y + 1);
@@ -47,28 +81,42 @@ export const GameScene: React.FC<GameSceneProps> = ({
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (isAiThinking) return; // Block input during AI turn
+      if (chess.turn() !== playerColor) return; // Block input if not player turn (redundancy)
 
       const { key } = e;
-      setCursorPos((prev) => {
-        let newX = prev.x;
-        let newY = prev.y;
+      const isWhite = playerColor === PieceColor.WHITE;
 
-        if (key === 'w' || key === 'W') newY = Math.min(newY + 1, 7);
-        if (key === 's' || key === 'S') newY = Math.max(newY - 1, 0);
-        if (key === 'a' || key === 'A') newX = Math.max(newX - 1, 0);
-        if (key === 'd' || key === 'D') newX = Math.min(newX + 1, 7);
+      setCursorPos((prev) => {
+        let dx = 0;
+        let dy = 0;
+
+        if (key === 'w' || key === 'W') dy = 1;
+        if (key === 's' || key === 'S') dy = -1;
+        if (key === 'a' || key === 'A') dx = -1;
+        if (key === 'd' || key === 'D') dx = 1;
+
+        // If playing Black, invert controls because camera is on opposite side
+        if (!isWhite) {
+            dx = -dx;
+            dy = -dy;
+        }
+
+        const newX = Math.max(0, Math.min(7, prev.x + dx));
+        const newY = Math.max(0, Math.min(7, prev.y + dy));
 
         return { x: newX, y: newY };
       });
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isAiThinking]); // Re-bind when AI state changes
+  }, [isAiThinking, playerColor, chess]);
 
-  // Execute logic on spacebar (Separate effect to access latest state)
+  // Execute logic on spacebar
   useEffect(() => {
     const handleAction = (e: KeyboardEvent) => {
         if (isAiThinking) return;
+        if (chess.turn() !== playerColor) return;
+
         if (e.key === ' ' || e.key === 'Enter') {
             const targetSquare = coordsToSquare(cursorPos.x, cursorPos.y);
             
@@ -86,16 +134,14 @@ export const GameScene: React.FC<GameSceneProps> = ({
                         setLastMove({ from: selectedSquare, to: targetSquare });
                         setSelectedSquare(null);
                         setValidMoves([]);
-                        
-                        // Trigger AI
-                        setTimeout(() => makeAiMove(), 500);
+                        // AI Trigger handled by Effect on FEN change
                     } catch (err) {
                         console.error(err);
                     }
                 } else {
                     // If clicking a different piece of own color, switch selection
                     const piece = chess.get(targetSquare as any);
-                    if (piece && piece.color === 'w') {
+                    if (piece && piece.color === playerColor) {
                         setSelectedSquare(targetSquare);
                         const valid = chess.moves({ square: targetSquare as any, verbose: true }).map(m => m.to);
                         setValidMoves(valid);
@@ -108,7 +154,7 @@ export const GameScene: React.FC<GameSceneProps> = ({
             } else {
                 // Select piece
                 const piece = chess.get(targetSquare as any);
-                if (piece && piece.color === 'w') {
+                if (piece && piece.color === playerColor) {
                     setSelectedSquare(targetSquare);
                     const valid = chess.moves({ square: targetSquare as any, verbose: true }).map(m => m.to);
                     setValidMoves(valid);
@@ -118,7 +164,7 @@ export const GameScene: React.FC<GameSceneProps> = ({
     };
     window.addEventListener('keydown', handleAction);
     return () => window.removeEventListener('keydown', handleAction);
-  }, [cursorPos, selectedSquare, chess, isAiThinking]);
+  }, [cursorPos, selectedSquare, chess, isAiThinking, playerColor]);
 
 
   const makeAiMove = async () => {
@@ -136,8 +182,7 @@ export const GameScene: React.FC<GameSceneProps> = ({
     const aiRes: AIResponse = await getBestMove(chess.fen(), moveStrings);
 
     try {
-        // AI response is 'e2e4' format usually, chess.move needs object or relaxed string
-        chess.move(aiRes.move); // chess.js is smart enough for "e2e4" often, or standard notation
+        chess.move(aiRes.move); 
         setFen(chess.fen());
         setLastCommentary(aiRes.commentary);
         
@@ -148,21 +193,19 @@ export const GameScene: React.FC<GameSceneProps> = ({
 
     } catch (e) {
         console.error("Move failed", e);
-        // Fallback random
         const randomMove = moves[Math.floor(Math.random() * moves.length)];
-        chess.move(randomMove);
-        setFen(chess.fen());
-        setLastCommentary("I decided to move quickly.");
-        setLastMove({ from: randomMove.from, to: randomMove.to });
+        if (randomMove) {
+            chess.move(randomMove);
+            setFen(chess.fen());
+            setLastCommentary("I decided to move quickly.");
+            setLastMove({ from: randomMove.from, to: randomMove.to });
+        }
     }
     
     setIsAiThinking(false);
   };
 
   // Camera Logic
-  const { camera } = useThree();
-  const controlsRef = useRef<any>(null);
-  // Track previous target to calculate delta for "Follow" mode
   const prevTarget = useRef(new THREE.Vector3(0, 0, 0));
 
   useFrame((state, delta) => {
@@ -172,40 +215,21 @@ export const GameScene: React.FC<GameSceneProps> = ({
     
     if (cameraMode === CameraMode.EMBODIED) {
         const idealTarget = new THREE.Vector3(targetX, 0, targetZ);
-        
-        // 1. Smoothly move the orbit target to the selected piece
         controlsRef.current.target.lerp(idealTarget, 5 * delta);
         
-        // 2. Calculate the movement delta of the target this frame
         const currentTarget = controlsRef.current.target;
         const moveDelta = new THREE.Vector3().subVectors(currentTarget, prevTarget.current);
-        
-        // 3. Apply this delta to the camera position
-        // This creates a "Follow" effect: the camera moves ALONG with the piece, 
-        // but maintains its relative rotation/zoom set by the user.
         camera.position.add(moveDelta);
-        
-        // Update tracker
         prevTarget.current.copy(currentTarget);
 
     } else {
-        // ORBIT MODE: Revert target to center
         const center = new THREE.Vector3(0, 0, 0);
         controlsRef.current.target.lerp(center, 2 * delta);
-        
-        // Update tracker so switching back doesn't cause jumps
         prevTarget.current.copy(controlsRef.current.target);
     }
     
     controlsRef.current.update();
   });
-
-  // Initial setup for prevTarget to avoid jump at start
-  useEffect(() => {
-      if (controlsRef.current) {
-          prevTarget.current.copy(controlsRef.current.target);
-      }
-  }, []);
 
   // Render Pieces
   const board = chess.board();
@@ -215,6 +239,8 @@ export const GameScene: React.FC<GameSceneProps> = ({
     row.forEach((piece, fileIdx) => {
       if (piece) {
         const x = fileIdx - 3.5;
+        // rankIdx 0 is Rank 8 (Back Rank Black). z = 3.5
+        // rankIdx 7 is Rank 1 (Back Rank White). z = -3.5
         const z = (7 - rankIdx) - 3.5;
         
         pieces.push(
@@ -242,7 +268,6 @@ export const GameScene: React.FC<GameSceneProps> = ({
 
       <OrbitControls 
         ref={controlsRef} 
-        // Enabled always to allow rotation in both modes
         makeDefault 
         enableDamping
         dampingFactor={0.1}
@@ -262,11 +287,16 @@ export const GameScene: React.FC<GameSceneProps> = ({
         {/* Player Cursor */}
         <mesh position={[cursorX, 0.05, cursorZ]} rotation={[-Math.PI/2, 0, 0]}>
             <ringGeometry args={[0.35, 0.4, 32]} />
-            <meshBasicMaterial color={selectedSquare ? "#00ff00" : "#ffffff"} transparent opacity={0.8} />
+            <meshBasicMaterial 
+                color={isAiThinking ? "#ff0000" : (selectedSquare ? "#00ff00" : "#ffffff")} 
+                transparent 
+                opacity={0.8} 
+            />
         </mesh>
+        {/* Floating Pointer above cursor */}
         <mesh position={[cursorX, 1.5, cursorZ]} rotation={[Math.PI, 0, 0]}>
             <coneGeometry args={[0.1, 0.3, 4]} />
-            <meshBasicMaterial color="white" />
+            <meshBasicMaterial color={isAiThinking ? "#ff0000" : "white"} />
         </mesh>
 
       </group>

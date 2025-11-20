@@ -1,11 +1,13 @@
 import React from 'react';
-import { CameraMode, SkinType } from '../types';
+import { CameraMode, SkinType, PieceColor } from '../types';
 
 interface OverlayProps {
   skin: SkinType;
   setSkin: (s: SkinType) => void;
   cameraMode: CameraMode;
   setCameraMode: (m: CameraMode) => void;
+  playerColor: PieceColor;
+  setPlayerColor: (c: PieceColor) => void;
   commentary: string;
   isThinking: boolean;
 }
@@ -15,6 +17,8 @@ export const Overlay: React.FC<OverlayProps> = ({
   setSkin,
   cameraMode,
   setCameraMode,
+  playerColor,
+  setPlayerColor,
   commentary,
   isThinking
 }) => {
@@ -67,6 +71,33 @@ export const Overlay: React.FC<OverlayProps> = ({
                   {m}
                 </button>
               ))}
+            </div>
+          </div>
+
+           {/* Player Color Selector */}
+           <div>
+            <label className="block text-xs text-gray-400 uppercase font-bold mb-2">Play As</label>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setPlayerColor(PieceColor.WHITE)}
+                className={`px-3 py-1 text-xs rounded transition-all flex items-center gap-2 ${
+                  playerColor === PieceColor.WHITE
+                    ? 'bg-white text-black font-bold shadow-lg' 
+                    : 'bg-white/10 text-white hover:bg-white/20'
+                }`}
+              >
+                <span className="w-2 h-2 rounded-full bg-white border border-black"></span> White
+              </button>
+              <button
+                onClick={() => setPlayerColor(PieceColor.BLACK)}
+                className={`px-3 py-1 text-xs rounded transition-all flex items-center gap-2 ${
+                  playerColor === PieceColor.BLACK
+                    ? 'bg-gray-800 text-white font-bold shadow-lg border border-gray-600' 
+                    : 'bg-white/10 text-white hover:bg-white/20'
+                }`}
+              >
+                <span className="w-2 h-2 rounded-full bg-black border border-white"></span> Black
+              </button>
             </div>
           </div>
         </div>
